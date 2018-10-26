@@ -45,6 +45,9 @@
 //#include "sensor_msgs/JointState.h"
 #include "dynamixel_msgs/JointState.h"
 
+// To subscribe ROS image topic
+#include <image_transport/image_transport.h>
+
 //For Nuitrack SDK
 #include "nuitrack/Nuitrack.h"
 #define KEY_JOINT_TO_TRACK    JOINT_LEFT_COLLAR // JOINT_TORSO // JOINT_NECK
@@ -99,6 +102,8 @@ namespace nuitrack_body_tracker
 
       // Subscribe to servo messages, so provided data is as "real time" as possible for smooth tracking
       //servo_pan_sub_ = nh_.subscribe("/head_pan_controller/state", 1, &nuitrack_body_tracker_node::servoPanCallback, this);
+      //image_transport::ImageTransport it(nh_);
+      depth_image_sub_ = nh_.subscribe("/realsense1/aligned_depth_to_color/image_raw",1,&nuitrack_body_tracker_node::imageCallback ,this);
 
     }
 
@@ -110,9 +115,22 @@ namespace nuitrack_body_tracker
     ///////////////////////////////////////////////////////////////////////////
     // Nuitrack callbacks
     // Copy depth frame data, received from Nuitrack, to texture to visualize
+    //void onNewDepthFrame(DepthFrame::Ptr frame)
     void onNewDepthFrame(DepthFrame::Ptr frame)
     {
-	    // std::cout << "Nuitrack: onNewDepthFrame callback" << std::endl;
+	     std::cout << "Nuitrack: onNewDepthFrame callback" << std::endl;
+       frame->getData = msg->data;
+    }
+
+    void imageCallback(const sensor_msgs::ImageConstPtr& msg)
+    {
+      std::cout << "image subscirbed! now!" << std::endl;
+      std::cout << msg->height << std::endl;
+      std::cout << msg->width << std::endl;
+      std::cout << msg->encoding << std::endl;
+      std::cout << msg->is_bigendian << std::endl;
+      std::cout << msg->step << std::endl;
+
     }
 
     /* Not used (yet?)
@@ -446,7 +464,8 @@ namespace nuitrack_body_tracker
 
     }
     */
-
+    
+    
     // Publish 2D position of person, relative to camera
     // useful for direct control of servo pan/tilt for tracking
     // Example: publishJoint2D("JOINT_NECK", joints[JOINT_NECK]);
@@ -501,11 +520,13 @@ namespace nuitrack_body_tracker
 	    // Create all required Nuitrack modules
 
 	    std::cout << "Nuitrack: DepthSensor::create()" << std::endl;
+      // From Hardware 
 	    depthSensor_ = tdv::nuitrack::DepthSensor::create();
 	    // Bind to event new frame
 	    depthSensor_->connectOnNewFrame(std::bind(
-      &nuitrack_body_tracker_node::onNewDepthFrame, this, std::placeholders::_1));
-	
+        &nuitrack_body_tracker_node::onNewDepthFrame, this, std::placeholders::_1));
+      //&nuitrack_body_tracker_node::imageCallback, this, std::placeholders::_1));
+	    //depthSensor_->connectOnNewFrame(std::bind(&nuitrack_body_tracker_node::imageCallback));
       outputMode_ = depthSensor_->getOutputMode();
 	    width_ = outputMode_.xres;
 	    height_ = outputMode_.yres;
@@ -624,6 +645,7 @@ namespace nuitrack_body_tracker
     //ros::Publisher body_tracking_pose3d_pub_;
     //ros::Publisher body_tracking_gesture_pub_;
     //ros::Subscriber servo_pan_sub_;
+    ros::Subscriber depth_image_sub_;
 
 	  tdv::nuitrack::OutputMode outputMode_;
 	  std::vector<tdv::nuitrack::Gesture> userGestures_;
@@ -633,10 +655,14 @@ namespace nuitrack_body_tracker
 	  tdv::nuitrack::SkeletonTracker::Ptr skeletonTracker_;
 	  tdv::nuitrack::HandTracker::Ptr handTracker_;
 	  tdv::nuitrack::GestureRecognizer::Ptr gestureRecognizer_;
+    //For ROSbag Input test
+    tdv::nuitrack::DepthFrame::Ptr depthFrame_;
+    sensor_msgs::ImageConstPtr msg;
+
+
 
   };
 };  // namespace nuitrack_body_tracker
-
 
   // The main entry point for this node.
   int main( int argc, char *argv[] )

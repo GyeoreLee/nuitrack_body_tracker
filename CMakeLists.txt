@@ -17,6 +17,7 @@ find_package(catkin REQUIRED COMPONENTS
   visualization_msgs
   body_tracker_msgs
   std_msgs
+  image_transport
 )
 
 ## System dependencies are found with CMake's conventions
