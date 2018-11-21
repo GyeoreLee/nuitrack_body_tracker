@@ -63,7 +63,7 @@ public:
   //public variable define
   std::string cam_id_string;
 
-  nuitrack_body_tracker_node(std::string name) : _name(name)
+  nuitrack_body_tracker_node(std::string name, std::string cam_name) : _name(name) ,_cam_name(cam_name)
   {
     ROS_INFO("%s: Starting...", _name.c_str());
     bool initialized = false;
@@ -171,7 +171,8 @@ public:
 
       // Deeptask data
       where_data.total += 1; //test
-
+      //std::string my_str =_cam_name.c_str();
+      //where_data.cam_id.push_back(my_str);
       position_data.tracking_status = 0; // TODO
       position_data.gesture = -1;        // No gesture
 
@@ -262,9 +263,6 @@ public:
       skeleton_data.joint_position_neck.x = skeleton.joints[JOINT_NECK].real.z / 1000.0;
       skeleton_data.joint_position_neck.y = skeleton.joints[JOINT_NECK].real.x / 1000.0;
       skeleton_data.joint_position_neck.z = skeleton.joints[JOINT_NECK].real.y / 1000.0;
-
-      // Deeptask
-      where_data.location;
 
       //Deeptask data Position
       geometry_msgs::Point32 location;
@@ -622,7 +620,7 @@ private:
   /////////////// DATA MEMBERS /////////////////////
 
   std::string _name;
-
+  std::string _cam_name;
   ros::NodeHandle nh_;
   std::string camera_depth_frame_;
   int width_, height_;
@@ -653,18 +651,18 @@ int main(int argc, char *argv[])
 {
 
   using namespace nuitrack_body_tracker;
-  /*
+  std::string cam_id = "";
   if (argc == 1)
   {
-    sprintf(nuitrack_body_tracker::nuitrack_body_tracker_node::cam_id_string, argv[1]);
+    cam_id = argv[1];
   }
   else
   {
-    sprintf(nuitrack_body_tracker::nuitrack_body_tracker_node::cam_id_string, "realsense1");
+    cam_id = "realsense";
   }
-  */
+  
   ros::init(argc, argv, "nuitrack_body_tracker");
-  nuitrack_body_tracker_node node(ros::this_node::getName());
+  nuitrack_body_tracker_node node(ros::this_node::getName(),cam_id);
   node.Init("");
   node.Run();
 
