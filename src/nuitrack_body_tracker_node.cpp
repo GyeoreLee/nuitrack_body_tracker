@@ -58,6 +58,8 @@
 
 const bool ENABLE_PUBLISHING_FRAMES = true;
 
+char camera_name[32];
+
 namespace nuitrack_body_tracker
 {
 using namespace tdv::nuitrack;
@@ -66,12 +68,15 @@ class nuitrack_body_tracker_node
 {
 public:
   //public variable define
-  std::string cam_id_string;
+  std_msgs::String cam_id_msgs;
+  char camera_name[32];
 
   nuitrack_body_tracker_node(std::string name, std::string cam_name) : _name(name) ,_cam_name(cam_name)
   {
     ROS_INFO("%s: Starting...", _name.c_str());
     bool initialized = false;
+    sprintf(camera_name,"%s",cam_name.c_str());
+    
 
     ros::NodeHandle nodeHandle("~");
     nodeHandle.param<std::string>("camera_depth_frame", camera_depth_frame_, "camera_depth_frame");
@@ -80,22 +85,22 @@ public:
 
     // Publish tracked person in 2D and 3D
     // 2D: x,y in camera frame.   3D: x,y,z in world coordinates
-    body_tracking_position_pub_ = nh_.advertise<body_tracker_msgs::BodyTracker>("body_tracker/position", 1);
+    body_tracking_position_pub_ = nh_.advertise<body_tracker_msgs::BodyTracker>(_cam_name+"/body_tracker/position", 1);
 
     // 3D position in local coordinates & roi publish for deeptask Project
-    body_tracking_position_deeptask_pub_ = nh_.advertise<pub_msgs::where_msgs>("/realsense/detector", 1);
+    body_tracking_position_deeptask_pub_ = nh_.advertise<pub_msgs::where_msgs>(_cam_name+"/detector", 1);
 
     // Publish tracked person upper body skeleton for advanced uses
-    body_tracking_skeleton_pub_ = nh_.advertise<body_tracker_msgs::Skeleton>("body_tracker/skeleton", 1);
+    body_tracking_skeleton_pub_ = nh_.advertise<body_tracker_msgs::Skeleton>(_cam_name+"/body_tracker/skeleton", 1);
 
     // Publish markers to show where robot thinks person is in RViz
-    marker_pub_ = nh_.advertise<visualization_msgs::Marker>("body_tracker/marker", 1);
+    marker_pub_ = nh_.advertise<visualization_msgs::Marker>(_cam_name+"/body_tracker/marker", 1);
 
       // Publish the depth frame for other nodes
       depth_image_pub_ = nh_.advertise<sensor_msgs::Image>
-        ("camera/depth/image", 1);
+        (_cam_name+"/depth/image", 1);
       color_image_pub_ = nh_.advertise<sensor_msgs::Image>
-        ("camera/color/image", 1);
+        (_cam_name+"/color/image", 1);
 
     // Subscribe to servo messages, so provided data is as "real time" as possible for smooth tracking
     //servo_pan_sub_ = nh_.subscribe("/head_pan_controller/state", 1, &nuitrack_body_tracker_node::servoPanCallback, this);
@@ -237,7 +242,6 @@ public:
       // ROS y = camera x - side to side
       // ROS z = camera y - vertical height, *relative to camera position*
 
-      //where_data.cam_id.push_back(cam_id_string);
 
       ///////////////////////////////////////////////////////////////
       // Position data in 2D and 3D for tracking people
@@ -249,8 +253,10 @@ public:
 
       // Deeptask data
       where_data.total += 1; //test
-      //std::string my_str =_cam_name.c_str();
-      //where_data.cam_id.push_back(my_str);
+      //std::cout <<"cam_name : "<< this->cam_id_string << std::endl;
+      cam_id_msgs.data = camera_name;
+      where_data.cam_id.push_back(cam_id_msgs);
+      
       position_data.tracking_status = 0; // TODO
       position_data.gesture = -1;        // No gesture
 
@@ -290,7 +296,7 @@ public:
 
       // *** POSITION 3D ***
       position_data.position3d.x = skeleton.joints[KEY_JOINT_TO_TRACK].real.z / 1000.0;
-      position_data.position3d.y = skeleton.joints[KEY_JOINT_TO_TRACK].real.x / 1000.0;
+      position_data.position3d.y = -skeleton.joints[KEY_JOINT_TO_TRACK].real.x / 1000.0;
       position_data.position3d.z = skeleton.joints[KEY_JOINT_TO_TRACK].real.y / 1000.0;
 
       skeleton_data.joint_position_head.x = skeleton.joints[JOINT_HEAD].real.z / 1000.0;
@@ -303,9 +309,9 @@ public:
 
       //Deeptask data Position
       geometry_msgs::Point32 location;
-      location.x = position_data.position3d.y;
-      location.y = position_data.position3d.z;
-      location.z = position_data.position3d.x;
+      location.x = position_data.position3d.x;
+      location.y = position_data.position3d.y;
+      location.z = position_data.position3d.z;
       where_data.location.push_back(location);
 
       skeleton_data.joint_position_spine_top.x = skeleton.joints[JOINT_TORSO].real.z / 1000.0;
@@ -391,7 +397,7 @@ public:
             position_data.position3d.y,
             position_data.position3d.z,
             1.0, 0.0, 0.0); // r,g,b
-
+        /*
         PublishMarker(
             3, // ID
             skeleton_data.joint_position_head.x,
@@ -412,6 +418,7 @@ public:
             skeleton_data.joint_position_spine_mid.y,
             skeleton_data.joint_position_spine_mid.z,
             0.0, 1.0, 0.0); // r,g,b
+        */
     }
   }
 
@@ -688,9 +695,11 @@ int main(int argc, char *argv[])
 
   using namespace nuitrack_body_tracker;
   std::string cam_id = "";
-  if (argc == 1)
+  //std::cout << "argument:"<< argc << std::endl;
+  if (argc >= 4)
   {
     cam_id = argv[1];
+    
   }
   else
   {
