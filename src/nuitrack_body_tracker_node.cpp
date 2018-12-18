@@ -296,7 +296,7 @@ public:
 
       // *** POSITION 3D ***
       position_data.position3d.x = skeleton.joints[KEY_JOINT_TO_TRACK].real.z / 1000.0;
-      position_data.position3d.y = -skeleton.joints[KEY_JOINT_TO_TRACK].real.x / 1000.0;
+      position_data.position3d.y = skeleton.joints[KEY_JOINT_TO_TRACK].real.x / 1000.0;
       position_data.position3d.z = skeleton.joints[KEY_JOINT_TO_TRACK].real.y / 1000.0;
 
       skeleton_data.joint_position_head.x = skeleton.joints[JOINT_HEAD].real.z / 1000.0;
@@ -309,9 +309,9 @@ public:
 
       //Deeptask data Position
       geometry_msgs::Point32 location;
-      location.x = position_data.position3d.x;
-      location.y = position_data.position3d.y;
-      location.z = position_data.position3d.z;
+      location.x = -position_data.position3d.y;
+      location.y = position_data.position3d.z;
+      location.z = position_data.position3d.x;
       where_data.location.push_back(location);
 
       skeleton_data.joint_position_spine_top.x = skeleton.joints[JOINT_TORSO].real.z / 1000.0;
