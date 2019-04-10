@@ -9,6 +9,8 @@
      (x, y from 0.0 to 1.0, z is real)
      Astra Mini FOV: 60 horz, 49.5 vert (degrees)
 
+     body_tracking_array_pub_ : multiple person detections in one message
+
    3D position of the person's neck joint in relation to robot (using TF)
      Joint.real: position in real world coordinates
      Useful for tracking person in 3D
@@ -24,7 +26,7 @@
 
 */
 
-#include "ros/ros.h"=
+#include "ros/ros.h"
 #include "std_msgs/String.h"
 #include "std_msgs/Int32.h"
 #include <sstream>
@@ -37,16 +39,17 @@
 
 #include "geometry_msgs/PoseStamped.h"
 #include "geometry_msgs/Pose2D.h"
+#include <sensor_msgs/Image.h>
 #include <visualization_msgs/Marker.h>
-#include "body_tracker_msgs/BodyTracker.h" // Publish custom message
-#include "body_tracker_msgs/Skeleton.h"    // Publish custom message
+#include <body_tracker_msgs/BodyTracker.h>       // Publish custom message
+#include <body_tracker_msgs/BodyTrackerArray.h>  // Custom message, multiple people
+#include <body_tracker_msgs/Skeleton.h>          // Publish custom message
+#include <body_tracker_msgs/BodyPose.h>      // Publish custom message
+
 
 #include <pub_msgs/where_msgs.h>       // Publish deeptask custom message
 #include <pub_msgs/three_w_msgs.h>     // Publish deeptask custom message
 #include <pub_msgs/roilocation_msgs.h> // Publish deeptask custom message
-#include "body_tracker_msgs/BodyTracker.h"  // Publish custom message
-#include "body_tracker_msgs/Skeleton.h"  // Publish custom message
-#include <sensor_msgs/Image.h>
 
 // If Camera mounted on Pan/Tilt head
 //#include "sensor_msgs/JointState.h"
@@ -54,7 +57,12 @@
 
 //For Nuitrack SDK
 #include "nuitrack/Nuitrack.h"
-#define KEY_JOINT_TO_TRACK JOINT_LEFT_COLLAR // JOINT_TORSO // JOINT_NECK
+#define KEY_JOINT_TO_TRACK    JOINT_LEFT_COLLAR // JOINT_TORSO // JOINT_NECK
+
+// For Face JSON parsing
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
+#include <boost/foreach.hpp>
 
 const bool ENABLE_PUBLISHING_FRAMES = true;
 
@@ -63,6 +71,7 @@ char camera_name[32];
 namespace nuitrack_body_tracker
 {
 using namespace tdv::nuitrack;
+  //namespace pt = boost::property_tree;
 
 class nuitrack_body_tracker_node
 {
@@ -80,6 +89,7 @@ public:
 
     ros::NodeHandle nodeHandle("~");
     nodeHandle.param<std::string>("camera_depth_frame", camera_depth_frame_, "camera_depth_frame");
+    nodeHandle.param<std::string>("camera_color_frame",camera_color_frame_,"camera_color_frame");
 
     // Publishers and Subscribers
 
@@ -87,11 +97,18 @@ public:
     // 2D: x,y in camera frame.   3D: x,y,z in world coordinates
     body_tracking_position_pub_ = nh_.advertise<body_tracker_msgs::BodyTracker>(_cam_name+"/body_tracker/position", 1);
 
+    body_tracking_array_pub_ =
+        nh_.advertise<body_tracker_msgs::BodyTrackerArray>
+        ("body_tracker_array/position", 1);
+
     // 3D position in local coordinates & roi publish for deeptask Project
     body_tracking_position_deeptask_pub_ = nh_.advertise<pub_msgs::where_msgs>(_cam_name+"/detector", 1);
 
     // Publish tracked person upper body skeleton for advanced uses
     body_tracking_skeleton_pub_ = nh_.advertise<body_tracker_msgs::Skeleton>(_cam_name+"/body_tracker/skeleton", 1);
+
+    body_pose_pub_ = nh_.advertise<body_tracker_msgs::BodyPose>
+        (_cam_name+"body_tracker/body_pose", 1);
 
     // Publish markers to show where robot thinks person is in RViz
     marker_pub_ = nh_.advertise<visualization_msgs::Marker>(_cam_name+"/body_tracker/marker", 1);
@@ -102,8 +119,7 @@ public:
       color_image_pub_ = nh_.advertise<sensor_msgs::Image>
         (_cam_name+"/color/image", 1);
 
-    // Subscribe to servo messages, so provided data is as "real time" as possible for smooth tracking
-    //servo_pan_sub_ = nh_.subscribe("/head_pan_controller/state", 1, &nuitrack_body_tracker_node::servoPanCallback, this);
+
   }
 
   ~nuitrack_body_tracker_node()
@@ -131,7 +147,8 @@ public:
     const uint16_t* depthPtr = frame->getData();
 
     msg.header.stamp = ros::Time::now();
-    msg.height = _height; 
+      msg.header.frame_id = camera_depth_frame_;
+    msg.height = _height;
     msg.width = _width;  
     msg.encoding = "rgb8";  // see sensor_msgs::image_encodings
     msg.is_bigendian = false;
@@ -173,7 +190,8 @@ public:
     const tdv::nuitrack::Color3* colorPtr = frame->getData();
 
     msg.header.stamp = ros::Time::now();
-    msg.height = _height; 
+    msg.header.frame_id = camera_color_frame_;
+    msg.height = _height;
     msg.width = _width;  
     msg.encoding = "rgb8";  //sensor_msgs::image_encodings::TYPE_16UC1;
     msg.is_bigendian = false;
@@ -205,22 +223,19 @@ public:
 
     // Position data for deeptask
     pub_msgs::where_msgs where_data;
-
     where_data.total = 0;
+
+    // Message for array of body detections
+      body_tracker_msgs::BodyTrackerArray  body_tracker_array_msg;
+      body_tracker_array_msg.header.frame_id = camera_depth_frame_;
+      ros::Time frame_time_stamp = ros::Time::now();
+      body_tracker_array_msg.header.stamp = frame_time_stamp;
 
     std::string face_info = tdv::nuitrack::Nuitrack::getInstancesJson();
 
-    // from https://stackoverflow.com/questions/32205981/reading-json-files-in-c
 
     std::cout << face_info; //This will print the entire json object.
-
-    //The following lines will let you access the indexed objects.
-    //std::cout << face_info["Instances"]; 
-    //std::cout << face_info["Instances"]["id"]; 
-    //std::cout << face_info["Instances"]["class"]; 
-    //std::cout << face_info["Instances"]["face"]; 
-    //std::cout << face_info["Instances"]["face"]["rectangle"]; 
-
+    // process skeletons for each user found
     auto skeletons = userSkeletons->getSkeletons();
     for (auto skeleton: skeletons)
     {
@@ -230,8 +245,7 @@ public:
       float tracking_confidence = skeleton.joints[KEY_JOINT_TO_TRACK].confidence;
       if (tracking_confidence < 0.15)
       {
-        std::cout << "Nuitrack: ID " << skeleton.id << " Low Confidence ("
-                  << tracking_confidence << "), skipping" << std::endl;
+          ROS_DEBUG("Nuitrack: ID %d Low Confidence (%f) , skipping", skeleton.id, tracking_confidence);
         continue; // assume none of the joints are valid
       }
 
@@ -247,8 +261,6 @@ public:
       // Position data in 2D and 3D for tracking people
       body_tracker_msgs::BodyTracker_<body_tracker_msgs::BodyTracker> position_data;
 
-      // position_data.frame_id = camera_depth_frame_;
-      position_data.body_id = skeleton.id;
       where_data.user_id.push_back(skeleton.id);
 
       // Deeptask data
@@ -256,9 +268,17 @@ public:
       //std::cout <<"cam_name : "<< this->cam_id_string << std::endl;
       cam_id_msgs.data = camera_name;
       where_data.cam_id.push_back(cam_id_msgs);
-      
+
+      position_data.body_id = skeleton.id;
       position_data.tracking_status = 0; // TODO
       position_data.gesture = -1;        // No gesture
+      position_data.face_found = false;
+      position_data.face_left = 0;
+      position_data.face_top = 0;
+      position_data.face_width = 0;
+      position_data.face_height = 0;
+      position_data.face_age = 0;
+      position_data.face_gender = 0;
 
       if (skeleton.id != last_id_)
       {
@@ -285,14 +305,178 @@ public:
       position_data.position2d.z = skeleton.joints[KEY_JOINT_TO_TRACK].proj.z / 1000.0;
 
           
-      std::cout << std::setprecision(4) << std::setw(7) 
-        << "Nuitrack: " << "2D Tracking"  
-        << " x: " << track2d.x 
-        << " y: " << track2d.y
-        << " ID: " << track2d.theta
-        << std::endl;
+      ROS_DEBUG("Nuitrack 2D Tracking: x: %5.2f y: %5.2f z: %5.2f ID: %d",
+                  track2d.x, track2d.y, track2d.theta, skeleton.id);
 
+        ///////////////////////////////////////////////////////////////
+        // Face Data
+        // if the same ID as skeleton id, publish face data too
+
+        std::string face_info = tdv::nuitrack::Nuitrack::getInstancesJson();
+        //std::cout << face_info; //This will print the entire json object.
+        // Good examples at: http://zenol.fr/blog/boost-property-tree/en.html
+
+        try
+        {
+          std::stringstream ss;
+          ss << face_info;
+          boost::property_tree::ptree root;
+          boost::property_tree::read_json(ss, root);
+
+          // Find all instances of objects (usually people)
+          for(boost::property_tree::ptree::value_type &instance : root.get_child("Instances"))
+          {
+            std::string json_id_str = "";
+            std::string json_class_str = "";
+            int json_id = -1;
+
+            for (boost::property_tree::ptree::value_type &found_object : instance.second)
+            {
+
+              if( "id" == found_object.first)
+              {
+                json_id_str = found_object.second.data();
+                json_id = found_object.second.get_value<int>();
+                ROS_DEBUG("FIELD: id = %s = %d", json_id_str, json_id);
+
+              }
+              else if( "class" == found_object.first)
+              {
+                ROS_DEBUG("FIELD: class = %s", found_object.second.data());
+                json_class_str = found_object.second.data();
+
+              }
+              else if( "face" == found_object.first)
+              {
+
+                // See if we found a face ID that matches current skeleton
+                //if( (json_class_str == "human") && (json_id_str != "") )
+                if( !( (json_class_str == "human") && (json_id == skeleton.id) ))
+                {
+                  ROS_DEBUG("FACE ID (%d) DOES NOT MATCH SKELETON (%d)... SKIPPING  (or object != Human?)", json_id, skeleton.id);
+                }
+                else
+                {
+
+                  boost::property_tree::ptree face = found_object.second; // subtree
+                  if(face.empty())
+                  {
+                    ROS_DEBUG("Face tree is empty!");
+                  }
+                  else
+                  {
+                    // this is a face subtree
+                    ROS_DEBUG("FACE FOUND ");
+                    position_data.face_found = true;
+                    float face_left, face_top, face_width, face_height;
+                    face_left = face_top = face_width = face_height = 0.0;
+
+                    for(boost::property_tree::ptree::value_type &rectangle : face.get_child("rectangle"))
+                    {
+                      // Face bounding box from 0.0 -> 1.0 (from top left of image)
+                      // convert to pixel position before publishing
+                      std::string name = rectangle.first;
+                      std::string val = rectangle.second.data();
+                      ROS_DEBUG("FACE RECTANGLE: %s : %s", name, val);
+
+                      if( rectangle.first == "left")
+                      {
+                        face_left = rectangle.second.get_value<float>();
+                        position_data.face_left = (int)((float)frame_width_ * face_left);
+                      }
+                      if( rectangle.first == "top")
+                      {
+                        face_top = rectangle.second.get_value<float>();
+                        position_data.face_top = (int)((float)frame_width_ * face_top);
+                      }
+                      if( rectangle.first == "width")
+                      {
+                        face_width = rectangle.second.get_value<float>();
+                        position_data.face_width = (int)((float)frame_width_ * face_width);
+                      }
+                      if( rectangle.first == "height")
+                      {
+                        face_height = rectangle.second.get_value<float>();
+                        position_data.face_height = (int)((float)frame_width_ * face_height);
+                      }
+                    }
+
+                    // Get center of the face bounding box and convert projection to radians
+                    // proj is 0.0 (left) --> 1.0 (right)
+
+                    float face_center_proj_x = face_left + (face_width / 2.0);
+                    float face_center_proj_y = face_top + (face_height / 2.0);
+                    position_data.face_center.x = (face_center_proj_x - 0.5) * ASTRA_MINI_FOV_X;
+                    position_data.face_center.y =  (face_center_proj_y - 0.5) * ASTRA_MINI_FOV_Y;
+                    // just use the skeleton location
+                    position_data.face_center.z = skeleton.joints[JOINT_HEAD].real.z / 1000.0;
+
+                    //std::cout << "DBG face_center_proj = " << face_center_proj_x << ", " <<
+                    //  face_center_proj_y << std::endl;
+
+                    //std::cout << "DBG face_center_ROS = " << position_data.face_center.x << ", " <<
+                    //  position_data.face_center.y << std::endl;
+
+
+
+                    for(boost::property_tree::ptree::value_type &angles : face.get_child("angles"))
+                    {
+                      // rectangle is set of std::pair
+                      std::string name = angles.first;
+                      std::string val = angles.second.data();
+                      //std::cout << "FACE ANGLES: " << name << " : " << val << std::endl;
+                      // Not currently published for ROS (future)
+
+                    }
+                    for(boost::property_tree::ptree::value_type &age : face.get_child("age"))
+                    {
+                      // rectangle is set of std::pair
+                      std::string name = age.first;
+                      std::string val = age.second.data();
+                      ROS_DEBUG("FACE AGE: %s : %s", name, val);
+
+                      if( age.first == "years")
+                      {
+                        float face_age = age.second.get_value<float>();
+                        position_data.face_age = (int)face_age;
+                      }
+
+                    }
+
+                    std::string gender = face.get<std::string>("gender");
+                    ROS_DEBUG("GENDER: %s", gender);
+                    if("male" == gender)
+                    {
+                      position_data.face_gender = 1;
+                    }
+                    else if("female" == gender)
+                    {
+                      position_data.face_gender = 2;
+                    }
+
+                  }
+                }
+              }
+            }
+          }
+        }
+        catch (std::exception const& e)
+        {
+          std::cerr << e.what() << std::endl;
+        }
+
+
+      ///////////////////////////////////////////////////////////////
+      // Skeleton Data for publishing more detail
       body_tracker_msgs::Skeleton_ <body_tracker_msgs::Skeleton> skeleton_data;
+
+      // skeleton_data.frame_id = camera_depth_frame_;
+      skeleton_data.body_id = skeleton.id;
+      skeleton_data.tracking_status = 0; // TODO
+
+      //skeleton_data.centerOfMass.x = 0.0;
+      //skeleton_data.centerOfMass.y = 0.0;
+      //skeleton_data.centerOfMass.z = 0.0;
 
       // *** POSITION 3D ***
       position_data.position3d.x = skeleton.joints[KEY_JOINT_TO_TRACK].real.z / 1000.0;
@@ -350,6 +534,28 @@ public:
       skeleton_data.joint_position_right_hand.y = skeleton.joints[JOINT_RIGHT_HAND].real.x / 1000.0;
       skeleton_data.joint_position_right_hand.z = skeleton.joints[JOINT_RIGHT_HAND].real.y / 1000.0;
 
+
+        // ETRI
+        body_tracker_msgs::BodyPose body_pose;
+        std::vector<float> joint_proj_coords;
+        std::vector<float> joint_real_coords;
+        for (int i=0; i<skeleton.joints.size(); i++)
+        {
+          joint_proj_coords.push_back(frame_width_ * skeleton.joints[i].proj.x);
+          joint_proj_coords.push_back(frame_height_ * skeleton.joints[i].proj.y);
+          joint_proj_coords.push_back(skeleton.joints[i].proj.z);
+
+          joint_real_coords.push_back(skeleton.joints[i].real.x);
+          joint_real_coords.push_back(skeleton.joints[i].real.y);
+          joint_real_coords.push_back(skeleton.joints[i].real.z);
+        }
+        body_pose.joints_proj = joint_proj_coords;
+        body_pose.joints_real = joint_real_coords;
+        body_pose.body_id = skeleton.id;
+        body_pose.tracking_status = 0; // TODO
+        body_pose.header.stamp = ros::Time::now();
+        body_pose_pub_.publish(body_pose);
+
       // Hand:  open (0), grasping (1), waving (2)
       /* TODO - see which of these actually work
         GESTURE_WAVING          = 0,
@@ -382,12 +588,17 @@ public:
         }
 
         ////////////////////////////////////////////////////
-        // Publish custom position and skeleton messages
+        // Publish custom position and skeleton messages for each person found
+
 
         body_tracking_position_pub_.publish(position_data); // position data
         //TODO
         body_tracking_position_deeptask_pub_.publish(where_data);
         body_tracking_skeleton_pub_.publish(skeleton_data); // full skeleton data
+
+        // Msg with array of position data for each person detected
+        body_tracker_array_msg.detected_list.push_back(position_data);
+
 
         // Publish skeleton markers
 
@@ -397,7 +608,7 @@ public:
             position_data.position3d.y,
             position_data.position3d.z,
             1.0, 0.0, 0.0); // r,g,b
-        /*
+
         PublishMarker(
             3, // ID
             skeleton_data.joint_position_head.x,
@@ -418,8 +629,12 @@ public:
             skeleton_data.joint_position_spine_mid.y,
             skeleton_data.joint_position_spine_mid.z,
             0.0, 1.0, 0.0); // r,g,b
-        */
+
     }
+
+      ////////////////////////////////////////////////////
+      // Publish custom array message with position info for all people found
+      body_tracking_array_pub_.publish(body_tracker_array_msg);
   }
 
   void onHandUpdate(HandTrackerData::Ptr handData)
@@ -518,9 +733,7 @@ public:
     ROS_INFO("%s: Initializing...", _name.c_str());
     // std::cout << "Nuitrack: Initializing..." << std::endl;
 
-    std::cout << 
-    "\n============ IGNORE ERRORS THAT SAY 'Couldnt open device...' ===========\n" 
-    << std::endl;
+      ROS_DEBUG("============ IGNORE ERRORS THAT SAY 'Couldnt open device...' ===========");
 
     try
     {
@@ -532,6 +745,34 @@ public:
       "Can not initialize Nuitrack (ExceptionType: " << e.type() << ")" << std::endl;
       exit(EXIT_FAILURE);
     }
+
+      // Set config values.  Overrides $NUITRACK_HOME/data/nuitrack.config
+
+      // Align depth and color
+      Nuitrack::setConfigValue("DepthProvider.Depth2ColorRegistration", "true");
+
+      // Realsense Depth Module - force to 848x480 @ 60 FPS
+      Nuitrack::setConfigValue("Realsense2Module.Depth.Preset", "5");
+      Nuitrack::setConfigValue("Realsense2Module.Depth.RawWidth", "848");
+      Nuitrack::setConfigValue("Realsense2Module.Depth.RawHeight", "480");
+      Nuitrack::setConfigValue("Realsense2Module.Depth.ProcessWidth", "848");
+      Nuitrack::setConfigValue("Realsense2Module.Depth.ProcessHeight", "480");
+      Nuitrack::setConfigValue("Realsense2Module.Depth.FPS", "60");
+
+      // Realsense RGB Module - force to 848x480 @ 60 FPS
+      Nuitrack::setConfigValue("Realsense2Module.RGB.RawWidth", "848");
+      Nuitrack::setConfigValue("Realsense2Module.RGB.RawHeight", "480");
+      Nuitrack::setConfigValue("Realsense2Module.RGB.ProcessWidth", "848");
+      Nuitrack::setConfigValue("Realsense2Module.RGB.ProcessHeight", "480");
+      Nuitrack::setConfigValue("Realsense2Module.RGB.FPS", "60");
+
+      // Enable face tracking
+      Nuitrack::setConfigValue("Faces.ToUse", "true");
+
+      //Options for debug
+      //Nuitrack::setConfigValue("Skeletonization.ActiveUsers", "1");
+      //Nuitrack::setConfigValue("DepthProvider.Mirror", "true");
+
 
     // Create all required Nuitrack modules
 
@@ -555,11 +796,14 @@ public:
       if (colorOutputMode.yres > outputMode_.yres)
         outputMode_.yres = colorOutputMode.yres;
 
-    width_ = outputMode_.xres;
-    height_ = outputMode_.yres;
+    // Use the larger of color or depth frame size
+    frame_width_ = outputMode_.xres;
+    frame_height_ = outputMode_.yres;
+
     last_id_ = -1;
     std::cout << "========= Nuitrack: GOT DEPTH SENSOR =========" << std::endl;
-    std::cout << "Nuitrack: Depth:  width = " << width_ << "  height = " << height_ << std::endl;
+      std::cout << "Nuitrack: Depth:  width = " << frame_width_ <<
+        "  height = " << frame_height_ << std::endl;
 
     std::cout << "Nuitrack: UserTracker::create()" << std::endl;
     userTracker_ = tdv::nuitrack::UserTracker::create();
@@ -655,12 +899,15 @@ private:
   std::string _cam_name;
   ros::NodeHandle nh_;
   std::string camera_depth_frame_;
-  int width_, height_;
+  std::string camera_color_frame_;
+  int frame_width_, frame_height_;
   int last_id_;
   ros::Publisher body_tracking_position_pub_;
   // Deeptask
   ros::Publisher body_tracking_position_deeptask_pub_;
+  ros::Publisher body_tracking_array_pub_;
   ros::Publisher body_tracking_skeleton_pub_;
+  ros::Publisher body_pose_pub_;
   ros::Publisher marker_pub_;
 
   ros::Publisher depth_image_pub_;
