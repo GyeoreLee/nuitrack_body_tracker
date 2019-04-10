@@ -108,7 +108,7 @@ public:
     body_tracking_skeleton_pub_ = nh_.advertise<body_tracker_msgs::Skeleton>(_cam_name+"/body_tracker/skeleton", 1);
 
     body_pose_pub_ = nh_.advertise<body_tracker_msgs::BodyPose>
-        (_cam_name+"body_tracker/body_pose", 1);
+        (_cam_name+"/body_tracker/body_pose", 1);
 
     // Publish markers to show where robot thinks person is in RViz
     marker_pub_ = nh_.advertise<visualization_msgs::Marker>(_cam_name+"/body_tracker/marker", 1);
@@ -259,7 +259,8 @@ public:
 
       ///////////////////////////////////////////////////////////////
       // Position data in 2D and 3D for tracking people
-      body_tracker_msgs::BodyTracker_<body_tracker_msgs::BodyTracker> position_data;
+      //body_tracker_msgs::BodyTracker_<body_tracker_msgs::BodyTracker> position_data;
+      body_tracker_msgs::BodyTracker position_data;
 
       where_data.user_id.push_back(skeleton.id);
 

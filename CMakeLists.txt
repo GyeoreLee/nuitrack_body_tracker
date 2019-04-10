@@ -6,7 +6,7 @@ add_compile_options(-std=c++11)
 
 # For nuitrack
 # add_compile_options(-std=c++11 -D_GLIBCXX_USE_CXX11_ABI=0)
-set(NUITRACK_SDK_PATH /home/bluish02-lab-linux/repository/DeepTasK_Kist_NUI/NuitrackSDK
+set(NUITRACK_SDK_PATH /home/kist/repository/DeepTasK_Kist_NUI/nuitrackSDK
 ) 
 
 ## Find catkin macros and libraries
