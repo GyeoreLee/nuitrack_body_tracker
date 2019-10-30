@@ -498,6 +498,7 @@ public:
       location.y = position_data.position3d.z;
       location.z = position_data.position3d.x;
       where_data.location.push_back(location);
+      
 
       skeleton_data.joint_position_spine_top.x = skeleton.joints[JOINT_TORSO].real.z / 1000.0;
       skeleton_data.joint_position_spine_top.y = skeleton.joints[JOINT_TORSO].real.x / 1000.0;
@@ -534,6 +535,24 @@ public:
       skeleton_data.joint_position_right_hand.x = skeleton.joints[JOINT_RIGHT_HAND].real.z / 1000.0;
       skeleton_data.joint_position_right_hand.y = skeleton.joints[JOINT_RIGHT_HAND].real.x / 1000.0;
       skeleton_data.joint_position_right_hand.z = skeleton.joints[JOINT_RIGHT_HAND].real.y / 1000.0;
+      
+      //Deeptask data Position
+      geometry_msgs::Point32 head;
+      geometry_msgs::Point32 left_hand;
+      geometry_msgs::Point32 right_hand;
+      head.x = -skeleton_data.joint_position_head.y;//-position_data.position3d.y;//skeleton_data.joint_position_head.x
+      head.y = skeleton_data.joint_position_head.z;//position_data.position3d.z;
+      head.z = skeleton_data.joint_position_head.x;//position_data.position3d.x;
+      
+      left_hand.x = -skeleton_data.joint_position_left_hand.y;//-position_data.position3d.y;//skeleton_data.joint_position_head.x
+      left_hand.y = skeleton_data.joint_position_left_hand.z;//position_data.position3d.z;
+      left_hand.z = skeleton_data.joint_position_left_hand.x;//position_data.position3d.x;
+      
+      right_hand.x = -skeleton_data.joint_position_right_hand.y;//-position_data.position3d.y;//skeleton_data.joint_position_head.x
+      right_hand.y = skeleton_data.joint_position_right_hand.z;//position_data.position3d.z;
+      right_hand.z = skeleton_data.joint_position_right_hand.x;//position_data.position3d.x;
+      
+      
 
 
         // ETRI
@@ -605,32 +624,32 @@ public:
 
         PublishMarker( // show marker at KEY_JOINT_TO_TRACK location
             1,         // ID
-            position_data.position3d.x,
-            position_data.position3d.y,
-            position_data.position3d.z,
+            location.x,//position_data.position3d.x,
+            location.y,//position_data.position3d.y,
+            location.z,//position_data.position3d.z,
             1.0, 0.0, 0.0); // r,g,b
-
+	/*
         PublishMarker(
             3, // ID
-            skeleton_data.joint_position_head.x,
-            skeleton_data.joint_position_head.y,
-            skeleton_data.joint_position_head.z,
+            head.x,//skeleton_data.joint_position_head.x,
+            head.y,//skeleton_data.joint_position_head.y,
+            head.z,//skeleton_data.joint_position_head.z,
             0.7, 0.0, 0.7); // r,g,b
 
         PublishMarker(
             4, // ID
-            skeleton_data.joint_position_spine_top.x,
-            skeleton_data.joint_position_spine_top.y,
-            skeleton_data.joint_position_spine_top.z,
+            left_hand.x,//skeleton_data.joint_position_spine_top.x,
+            left_hand.y,//skeleton_data.joint_position_spine_top.y,
+            left_hand.z,//skeleton_data.joint_position_spine_top.z,
             0.0, 0.0, 1.0); // r,g,b
 
         PublishMarker(
             5, // ID
-            skeleton_data.joint_position_spine_mid.x,
-            skeleton_data.joint_position_spine_mid.y,
-            skeleton_data.joint_position_spine_mid.z,
+            right_hand.x,//skeleton_data.joint_position_spine_mid.x,
+            right_hand.y,//skeleton_data.joint_position_spine_mid.y,
+            right_hand.z,//skeleton_data.joint_position_spine_mid.z,
             0.0, 1.0, 0.0); // r,g,b
-
+	*/
     }
 
       ////////////////////////////////////////////////////
@@ -669,7 +688,7 @@ public:
     visualization_msgs::Marker marker;
     marker.header.frame_id = camera_depth_frame_;
     marker.header.stamp = ros::Time::now();
-    marker.lifetime = ros::Duration(3.0); // seconds
+    marker.lifetime = ros::Duration(0.1); // 3.0 seconds
     // Any marker sent with the same namespace and id will overwrite the old one
     marker.ns = _name;
     marker.id = id; // This must be id unique for each marker
